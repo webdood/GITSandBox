@@ -1,0 +1,555 @@
+﻿<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd"> 
+<html xmlns="http://www.w3.org/1999/xhtml" > 
+<head> 
+  <title>Oblong</title>
+  <meta name="author" content="Shannon Norrell" /> 
+  <!--  Requirements for code sample:
+        - add a new "rectangle" to the area
+        - remove a rectangle
+        - resize a rectangle using direct mouse manipulations
+        - move a rectangle using direct mouse manipulations
+        - change the color of a rectangle
+        - clear the area
+        - save the current area layout (the position, size, and color of
+           each rectangle in the area)
+        - name a saved layout
+        - return to a saved layout
+        - delete a saved layout from the set of saved layouts
+        
+        This is all 100% original code by Shannon Norrell, 9/23/2010
+    -->
+  <style type="text/css"> 
+    body {
+      margin-top:40px;
+    }
+    .smallButton {
+      width:32px;
+      height:32px;
+      background-color:Gray;
+      color:#FEFEFE;
+      border:ridge 1px black;
+      text-align:center center;
+      font-weight:900;
+      font-size:20pt;
+      text-align:center;
+      -moz-border-radius: 5px;
+      border-radius: 5px;
+      -moz-box-shadow: 3px 3px 3px #666;
+      -webkit-box-shadow: 3px 3px 3px #666;
+      box-shadow: 3px 3px 3px #666;
+      margin-left:10px;
+      margin-right:10px;
+      float:left;
+      cursor:pointer;
+    }
+    .sampleRectangle {
+      float:left;
+      border:solid 1px black;
+    }
+    #sampleOne {
+      background-color:Red;
+      width:40px;
+      height:50px;
+      margin-top:-10px;
+    }
+    #sampleTwo {
+      background-color:Blue;
+      width:22px;
+      height:22px;
+      margin-left:-17px;
+      margin-top:3px;
+    }
+    #sampleThree {
+      background-color:Yellow;
+      width:12px;
+      height:12px;
+      margin-left:-40px;
+    }
+    .layoutElements { float: right; }
+    #layouts, #layout {
+      width:250px;
+      line-height:20pt;
+      font-size:20pt;
+      float:left;
+    }
+    #layout {
+      margin-left:-250px;
+      display:none; 
+    }
+    .helperText {
+      color:#d3d3d3;
+    }
+    .rectangle {
+      position:absolute;
+      top:160px;
+      left:170px;
+      -moz-box-shadow: 3px 3px 3px #666;
+      -webkit-box-shadow: 3px 3px 3px #666;
+      box-shadow: 3px 3px 3px #666;
+      cursor:default;
+    }
+    .rectangle.selected {
+      border:solid 4px black;
+    }
+    .resizeHandle {
+      position:absolute;
+      bottom:0;
+      right:0;
+      height:15px;
+      width:15px;
+      background-color:Gray;
+      cursor:nw-resize;
+    }
+    #instructions {
+      position:relative;
+      width:475px;
+      height:50px;
+      background-color:green;
+      border:solid 5px black;
+      margin-left:auto;
+      margin-right:auto;
+      padding-top:20px;
+      text-align:center;
+      vertical-align:middle;
+      font-size:16pt;
+      font-family:Tahoma;
+      font-weight:700;
+      white-space:nowrap;
+      -moz-border-radius: 25px;
+      border-radius: 25px;
+      opacity:1;                    /* Firefox, Safari and Chrome (WebKit), Opera */
+      filter: alpha(opacity=100);    /* IE */
+      display:none;
+    }
+  </style>    
+  <script type="text/javascript">
+    var Oblong = {
+      browser: {
+        FF: (/Firefox[\/\s](\d+\.\d+)/.test(navigator.userAgent)),
+        SAFARI: (/Safari[\/\s](\d+\.\d+)/.test(navigator.userAgent)),
+        IE: (navigator.appName == 'Microsoft Internet Explorer'),
+        NS: (navigator.appName == 'Netscape')
+      },
+      eventHandlerFor: {
+        mouseDown: function(e) {
+          var event = (Oblong.browser.IE) ? window.event : e,
+              srcElement = (Oblong.browser.IE) ? event.srcElement : event.target,
+              bIsDraggableObject = srcElement.className.indexOf('draggable') > -1,
+              bIsResizeHandle = srcElement.className.indexOf('resizeHandle') > -1;
+          removeClassName(Oblong.rectangle._currentSelected.rectangleObject, "selected");  // Reset previous selection, if any
+          Oblong.rectangle._currentSelected.rectangleObject = Oblong.rectangle._currentOperation = null;
+          if (!srcElement.onmousedown) {  // Ignore DOMElements with specifically attached onmousedown event handlers
+            srcElement.title = "";  // "Helper text" is only displayed until a user interacts with the object. 
+            switch (true) {
+              case (event.ctrlKey && bIsDraggableObject): // Ctrl+Click Changes color
+                var currentColor = srcElement.style.backgroundColor.toLowerCase(); // Firefox has nasty habit of returning colors CamelCase
+                // Rotate to the next color in the array of validColors
+                srcElement.style.backgroundColor = Oblong.rectangle._valid.colors[((Oblong.rectangle._valid.colors.indexOf(currentColor) + 1) % Oblong.rectangle._valid.colors.length)];
+                break;
+              case (bIsDraggableObject):
+                Oblong.rectangle._currentSelected.rectangleObject = srcElement;
+                Oblong.rectangle._currentSelected.rectangleObject.style.cursor = "move";  // Temporarily display a crosshari-like cursor (indicating move) while move operation is under way
+                Oblong.rectangle._currentOperation = "drag";
+                break;
+              case (bIsResizeHandle):
+                Oblong.rectangle._currentSelected.rectangleObject = srcElement.parentNode;
+                Oblong.rectangle._currentOperation = "resize";
+                break;
+            }
+            if (bIsDraggableObject || bIsResizeHandle) {  // If the user has done ANY operation on a rectangle, mark it as "selected"
+              addClassName(Oblong.rectangle._currentSelected.rectangleObject, "selected");
+            }
+            if (Oblong.rectangle._currentSelected.rectangleObject) {
+              Oblong.rectangle._currentSelected.mouseOffsetX = (Oblong.browser.NS) ? event.layerX : event.offsetX + 2;
+              Oblong.rectangle._currentSelected.mouseOffsetY = (Oblong.browser.NS) ? event.layerY : event.offsetY + 2;
+              Oblong.rectangle._currentSelected.lastMousePositionX = (Oblong.browser.NS) ? e.pageX : event.x;
+              Oblong.rectangle._currentSelected.lastMousePositionY = (Oblong.browser.NS) ? e.pageY : event.y;
+              addEvent(document, "mousemove", Oblong.eventHandlerFor.mouseMove);  // Only add event handlers when we need to track the event
+              addEvent(document, "mouseup", Oblong.eventHandlerFor.mouseUp);
+            }
+          }
+        },
+        mouseMove: function(e) {
+          if (Oblong.rectangle._currentSelected.rectangleObject) {
+            if (Oblong.rectangle._currentOperation === "drag") {
+              Oblong.rectangle._currentSelected.rectangleObject.style.top = ((Oblong.browser.NS) ? e.pageY : event.y) - Oblong.rectangle._currentSelected.mouseOffsetY + "px";
+              Oblong.rectangle._currentSelected.rectangleObject.style.left = ((Oblong.browser.NS) ? e.pageX : event.x) - Oblong.rectangle._currentSelected.mouseOffsetX + "px";
+            } else { // "resize"
+              var currentMousePositionX = (Oblong.browser.NS) ? e.pageX : event.x,
+                  currentMousePositionY = (Oblong.browser.NS) ? e.pageY : event.y,
+                  deltaWidth = currentMousePositionX - Oblong.rectangle._currentSelected.lastMousePositionX,
+                  deltaHeight = currentMousePositionY - Oblong.rectangle._currentSelected.lastMousePositionY,
+                  newWidth = parseFloat(Oblong.rectangle._currentSelected.rectangleObject.style.width) + deltaWidth,
+                  newHeight = parseFloat(Oblong.rectangle._currentSelected.rectangleObject.style.height) + deltaHeight;
+              newWidth = Math.max(newWidth, Oblong.rectangle._valid.minWidth); // Ensure that new height/width is within reason
+              newHeight = Math.max(newHeight, Oblong.rectangle._valid.minHeight);
+              Oblong.rectangle._currentSelected.rectangleObject.style.width = newWidth + "px";
+              Oblong.rectangle._currentSelected.rectangleObject.style.height = newHeight + "px";
+              Oblong.rectangle._currentSelected.lastMousePositionX = currentMousePositionX;
+              Oblong.rectangle._currentSelected.lastMousePositionY = currentMousePositionY;
+            }
+          }
+        },
+        mouseUp: function(event) {
+          removeEvent(document, "mousemove", Oblong.eventHandlerFor.mouseMove);  // Remove event handlers now that we no longer need to track them
+          removeEvent(document, "mouseup", Oblong.eventHandlerFor.mouseUp);
+          if (Oblong.rectangle._currentOperation === "drag") {
+            Oblong.rectangle._currentSelected.rectangleObject.style.cursor = "default";
+          }
+        }
+      },
+      layout: {
+        _current: null,
+        _default: {
+          helperText: "Enter Layout Name",
+          picklistHelperText: "No saved layouts"
+        },
+        _saved: {},  // This will hold the saved layout structures
+        add: function(newLayoutName) {
+          if (newLayoutName.length) {
+            if (!this._saved[newLayoutName]) {
+              // Build a list of all rectangles on the page
+              var pileOfRectangles = [],
+                oPileOfDIVs = document.getElementsByTagName('div');
+              for (var i = 0; i < oPileOfDIVs.length; i++) {
+                var aDiv = oPileOfDIVs[i];
+                if (hasClassName(aDiv, "rectangle")) {
+                  var aWidth = aDiv.style.width,
+                      aHeight = aDiv.style.height,
+                      aColor = aDiv.style.backgroundColor,
+                      aLeft = aDiv.offsetLeft,
+                      aTop = aDiv.offsetTop;
+                  pileOfRectangles.push([aWidth, aHeight, aLeft, aTop, aColor]);  // Save off the width, height, left, top and color of each rectangle into an array of arrays
+                }
+              }
+              this._saved[newLayoutName] = {
+                rectangles: pileOfRectangles
+              };
+              var oLayoutPickList = document.getElementById("layouts"),
+                oNewLayoutOption = document.createElement("option");
+              // If this is the first option we are adding, remove the "No saved layouts" option
+              if (oLayoutPickList.options.length == 1 && oLayoutPickList.options[0].value === "-1") {
+                oLayoutPickList.options.length = 0;
+              }
+              // Add a new Option to our Picklist of saved layouts
+              oNewLayoutOption.value = newLayoutName;
+              oNewLayoutOption.text = newLayoutName;
+              if (Oblong.browser.IE) {
+                oLayoutPickList.add(oNewLayoutOption);
+              } else {
+                oLayoutPickList.appendChild(oNewLayoutOption);
+              }
+              oLayoutPickList.selectedIndex = oLayoutPickList.length - 1;
+              document.getElementById("layout").style.display = 'none';
+            }
+          }
+        },
+        clear: function() {
+          var oPileOfDIVs = document.getElementsByTagName('div'),
+              rectanglesToRemove = [];
+          for (var i = 0; i < oPileOfDIVs.length; i++) {
+            var aDiv = oPileOfDIVs[i];
+            if (hasClassName(aDiv, "rectangle")) {
+              rectanglesToRemove.push(aDiv); // You cannot directly remove divs at this time as it mangles the oPileOfDivs length. Therefore, store the DIV to remove for later processing
+            }
+          }
+          for (var i = 0; i < rectanglesToRemove.length; i++) {
+            document.body.removeChild(rectanglesToRemove[i]);
+          }
+        },
+        display: function(oPickList) {
+          var layoutToDisplay = oPickList.options[oPickList.selectedIndex].value;
+          if (layoutToDisplay !== this._default.picklistHelperText) {
+            this.clear();
+            var rectanglesToDisplay = this._saved[layoutToDisplay].rectangles;
+            for (var i = 0; i < rectanglesToDisplay.length; i++) {
+              var newRectangle = document.createElement('div'),
+                  newResizeHandle = document.createElement('div'),
+                  rectangleToDisplay = rectanglesToDisplay[i];
+              newRectangle.className = "draggable rectangle";
+              newRectangle.style.width = rectangleToDisplay[0];
+              newRectangle.style.height = rectangleToDisplay[1];
+              newRectangle.style.left = rectangleToDisplay[2] + "px";
+              newRectangle.style.top = rectangleToDisplay[3] + "px";
+              newRectangle.style.backgroundColor = rectangleToDisplay[4];
+              newRectangle.title = Oblong.rectangle._default.helperText;
+              newResizeHandle.className = "resizeHandle";
+
+              newRectangle.appendChild(newResizeHandle);
+              document.body.appendChild(newRectangle);
+            }
+          }
+        },
+        inputNewLayoutName: function() {
+          var oLayoutNameInputBox = document.getElementById("layout");
+          oLayoutNameInputBox.value = this._default.helperText;
+          addClassName(oLayoutNameInputBox, "helperText");
+          oLayoutNameInputBox.style.display = "block";
+          oLayoutNameInputBox.focus();
+          return false;
+        },
+        remove: function() {
+          var oLayoutPickList = document.getElementById("layouts");
+          oLayoutPickList.remove(oLayoutPickList.selectedIndex);
+          if (oLayoutPickList.options.length === 0) { // If we have removed the last layout from the list, restore the "No saved layouts" option
+            var oNewLayoutOption = document.createElement("option");
+            oNewLayoutOption.value = "-1";
+            oNewLayoutOption.text = this._default.picklistHelperText;
+            if (Oblong.browser.IE) {
+              oLayoutPickList.add(oNewLayoutOption);
+            } else {
+              oLayoutPickList.appendChild(oNewLayoutOption);
+            }
+          }
+        },
+        parseKeyStrokes: function(oInputElement, e) {
+          var event = (Oblong.browser.IE) ? window.event : e;
+          if (hasClassName(oInputElement, "helperText")) {  // Remove helper text from input field once a user starts typing
+            oInputElement.value = "";
+            removeClassName(oInputElement, "helperText");
+          }
+          if (event.keyCode === 13) {  // If a user has pressed <enter>
+            if (oInputElement.value.length > 0) {  // If they entered some text, time to save the layout
+              this.add(oInputElement.value);
+            }
+            oInputElement.style.display = "none";  // Hide the input box
+          }
+        },
+        provideHelperText: function(oInputElement) {        // Provide helper text in the input field if user has backspaced over all typing
+          if (oInputElement.value.length === 0) {
+            oInputElement.value = this._default.helperText;
+            addClassName(oInputElement, "helperText");
+          }
+        }
+      },
+      rectangle: {
+        _bInstructionsHaveBeenDisplayed: false,   // We only display instructions the first time a user adds a rectangle to the page
+        _currentOperation: null,                  // When an onmousemove event handler is tracked, this will either be "drag" or "resize"
+        _currentSelected: {                       // Object/handle to currently selected rectangle being dragged/resized
+          rectangleObject: null,
+          lastMousePositionX: 0,
+          lastMousePositionY: 0,
+          mouseOffsetX: 0,
+          mouseOffsetY: 0
+        },
+        _instructionsPanel: null,                  // Object/handle to instructions panel
+        _instructionsPanelFaderInterval: null,       // This will hold the interval used to fade out the instructions panel
+        _default: {   // Sets up default values for "new" rectangles
+          backgroundColor: "red",
+          fadeInstructionsDeltaOpacityPerFrame: .033,
+          fadeInstructionsMillisecondsPerFrame: 100,
+          width: 200,
+          height: 200,
+          helperText: "Ctrl+Click to change colors"
+        },
+        _valid: {     // Establish valid value ranges for rectangle properties
+          colors: ["red", "green", "blue", "yellow", "purple"],
+          minWidth: 20,
+          minHeight: 25
+        },
+        add: function() {
+          var newRectangle = document.createElement('div'),
+              newResizeHandle = document.createElement('div');
+          newRectangle.className = "draggable rectangle";
+          newRectangle.style.backgroundColor = this._default.backgroundColor;
+          newRectangle.style.width = this._default.width + "px";
+          newRectangle.style.height = this._default.height + "px";
+          newRectangle.title = this._default.helperText;
+
+          newResizeHandle.className = "resizeHandle";
+          newRectangle.appendChild(newResizeHandle);
+          document.body.appendChild(newRectangle);
+          if (!this._bInstructionsHaveBeenDisplayed) {
+            this._instructionsPanel = document.getElementById("instructions");
+            this._instructionsPanel.style.display = 'block';
+            this._instructionsPanel._opacity = 1; // Add arbitrary property to div oHTMLElement to track opacity cross-browser
+            Oblong.rectangle._instructionsPanelFaderInterval = setInterval("Oblong.rectangle.fadeInstructions()", this._default.fadeInstructionsMillisecondsPerFrame);
+          }
+        },
+        fadeInstructions: function() {
+          if (this._instructionsPanel._opacity > this._default.fadeInstructionsDeltaOpacityPerFrame) {
+            var newOpacity = this._instructionsPanel._opacity - this._default.fadeInstructionsDeltaOpacityPerFrame;
+          } else {
+            var newOpacity = 0;
+            clearInterval(Oblong.rectangle._instructionsPanelFaderInterval);
+            this._instructionsPanel.style.display = 'none';
+            this._bInstructionsHaveBeenDisplayed = true;
+          }
+          this._instructionsPanel._opacity = newOpacity;
+          if (Oblong.browser.IE) {
+            this._instructionsPanel.style.filter = 'alpha(opacity=' + newOpacity * 100 + ')';
+          } else {
+            this._instructionsPanel.style.opacity = newOpacity;
+          }
+        },
+        remove: function() {
+          if (this._currentSelected.rectangleObject) {
+            document.body.removeChild(this._currentSelected.rectangleObject);
+          }
+        }
+      }
+    };
+    ////////////////////////////////////////////////////////////////////////////////
+    //
+    // GENERAL UTILITIES
+    //
+    ////////////////////////////////////////////////////////////////////////////////
+    ////////////////////////////////////////////////////////////////////////////////
+    //
+    // addClassName([object|string] oHTMLElement, string classNameToAdd)
+    //           Adds classNameToAdd to an HTMLElement. Guaranteed not to add the same className twice.
+    //           classNameToAdd can be a space separated list of classNames.
+    //           You can pass in the id to an object or the actual object
+    //
+    ////////////////////////////////////////////////////////////////////////////////
+    function addClassName(oHTMLElement, classNameToAdd) {
+      if (typeof (oHTMLElement) == "string") { oHTMLElement = document.getElementById(oHTMLElement); }
+      if ( oHTMLElement && !hasClassName(oHTMLElement, classNameToAdd) ) {
+        var theClassName = oHTMLElement.className;
+        if (theClassName && (theClassName.length > 0)) {  // If oHTMLElement already has a class name, some more work is needed
+          var classNamesToAdd = classNameToAdd.split(" ");
+          if (classNamesToAdd.length === 1 && ((" " + theClassName + " ").lastIndexOf(" " + classNameToAdd + " ") === -1)) { // If we only have one className to potentially add, take the "less work" approach
+            oHTMLElement.className = oHTMLElement.className + " " + classNameToAdd;
+          } else {
+            var theClassNames = theClassName.split(" "),
+            iEnd = classNamesToAdd.length,
+            aClassName,
+            theClassNamesToAddArray = [];
+            for (var i = 0; i < iEnd; i++) {
+              aClassName = classNamesToAdd[i];
+              if (theClassNames.indexOf(aClassName) === -1) {
+                theClassNamesToAddArray.push(aClassName);
+              }
+            }
+            oHTMLElement.className = oHTMLElement.className + " " + ((theClassNamesToAddArray.length > 1) ? theClassNamesToAddArray.join(" ") : theClassNamesToAddArray[0]);
+          }
+        } else {
+          oHTMLElement.className = classNameToAdd;        // If oHTMLElement did not already have a class name, just add it
+        }
+      }
+    }
+    /////////////////////////////////////////////////////////////////////////////////////////
+    // addEvent( [object|string] oHTMLElement, string eventName, string handler )          //
+    //   Adds an event handler to an HTMLElement.  Note that the eventName must be passed  //
+    //   in without the "on" prefix.                                                       //
+    /////////////////////////////////////////////////////////////////////////////////////////
+    function addEvent(oHTMLElement, eventName, handler) {
+      try {
+        if (typeof (oHTMLElement) == "string") {
+          oHTMLElement = document.getElementById(oHTMLElement);
+        }
+        if (Oblong.browser.NS) {
+          oHTMLElement.addEventListener(eventName, handler, false);
+        } else {
+          oHTMLElement.attachEvent("on" + eventName, handler);
+        }
+      }
+      catch (err) {
+      }
+    }
+    ////////////////////////////////////////////////////////////////////////////////
+    //
+    // hasClassName([object|string] oHTMLElement, string classNameOfInterest)
+    //           Returns a boolean value of if an HTMLElement has the className of interest
+    //           You can pass in the id to an object or the actual object
+    //
+    ////////////////////////////////////////////////////////////////////////////////
+    function hasClassName(oHTMLElement, classNameOfInterest) {
+      return ((" " + oHTMLElement.className + " ").lastIndexOf(" " + classNameOfInterest + " ") > -1);
+    }
+    ////////////////////////////////////////////////////////////////////////////////
+    //
+    // removeClassName([object|string] oHTMLElement, string classNameToRemove)
+    //           Removes classNameToRemove from an HTMLElement, if it exists.
+    //           classNameToRemove can be a space separated list of classNames.
+    //           You can pass in the id to oHTMLElement or the actual object
+    //
+    ////////////////////////////////////////////////////////////////////////////////
+    function removeClassName(oHTMLElement, classNameToRemove) {
+      if (typeof (oHTMLElement) == "string") { oHTMLElement = document.getElementById(oHTMLElement); }
+      if (oHTMLElement && hasClassName(oHTMLElement, classNameToRemove)) {
+        var theClassName = oHTMLElement.className;
+        if (theClassName && (theClassName.length > 0)) {
+          var theClassNameArray = theClassName.split(" "),
+          classNamesToRemove = classNameToRemove.split(" "),
+          iEnd = theClassNameArray.length,
+          aClassName,
+          theNewClassNameArray = [];
+          for (var i = 0; i < iEnd; i++) {
+            aClassName = theClassNameArray[i];
+            if (classNamesToRemove.indexOf(aClassName) === -1) {
+              theNewClassNameArray.push(aClassName);
+            }
+          }
+          switch (true) {
+            case (theNewClassNameArray.length > 1):
+              oHTMLElement.className = theNewClassNameArray.join(" ");
+              break;
+            case (theNewClassNameArray.length == 1):
+              oHTMLElement.className = theNewClassNameArray[0];
+              break;
+            case (theNewClassNameArray.length == 0):
+              oHTMLElement.className = "";
+              break;
+          }
+        }
+      }
+    }
+    /////////////////////////////////////////////////////////////////////////////////////////
+    // removeEvent( [object|string] oHTMLElement, string eventName, string handler )       //
+    //   Removes an event handler to an HTMLElement.  Note that the eventName must be      //
+    //   passed in without the "on" prefix.                                                //
+    /////////////////////////////////////////////////////////////////////////////////////////
+    function removeEvent(oHTMLElement, eventName, handler) {
+      try {
+        if (typeof (oHTMLElement) == "string") {
+          oHTMLElement = document.getElementById(oHTMLElement);
+        }
+        if (Oblong.browser.NS) {
+          oHTMLElement.removeEventListener(eventName, handler, false);
+        } else {
+          oHTMLElement.detachEvent("on" + eventName, handler);
+        }
+      }
+      catch (err) {
+      }
+    }
+    ////////////////////////////////////////////////////////////////////////////
+    // DOM Additions                                                          //
+    // =============                                                          //
+    ////////////////////////////////////////////////////////////////////////////
+    if (!Array.prototype.indexOf) {  // Add an Array.indexOf (IE *still* does not have this)
+      Array.prototype.indexOf = function(valueToSearchFor) {
+        var iEnd = this.length;
+        var retVal = -1;
+        for (var i = 0; i < iEnd; i++) {
+          if (this[i] == valueToSearchFor) {
+            retVal = i;
+            break;
+          }
+        }
+        return retVal;
+      };
+    }  
+    
+    // Attach event handlers at the document level, rather than to individual elements
+    addEvent(document, "mousedown", Oblong.eventHandlerFor.mouseDown);
+ </script> 
+</head> 
+<body>
+ <div class="smallButton" onmousedown="Oblong.rectangle.add()">+</div> 
+ <div id="sampleOne" class="sampleRectangle"></div> 
+ <div id="sampleTwo" class="sampleRectangle"></div> 
+ <div id="sampleThree" class="sampleRectangle"></div> 
+ <div class="smallButton" onmousedown="Oblong.rectangle.remove()">-</div> 
+ <div class="layoutElements"> 
+   <div class="smallButton" onmousedown="return Oblong.layout.inputNewLayoutName()">+</div> 
+   <select id="layouts" onchange="Oblong.layout.display(this);"> 
+     <option value="-1">No saved layouts</option> 
+   </select> 
+   <input id="layout" type="text" onkeypress="return Oblong.layout.parseKeyStrokes(this, event);" onkeyup="return Oblong.layout.provideHelperText(this)" onblur="Oblong.layout.add(this.value)"/> 
+   <div class="smallButton" onmousedown="Oblong.layout.remove()">-</div> 
+ </div> 
+<div id="instructions">Ctrl + Click on a rectangle to change its color</div>
+</body> 
+</html> 
